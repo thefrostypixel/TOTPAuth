@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Quick TOTP Authenticator</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <meta name="viewport" content="initial-scale=1">
+        <meta name="description" content="">
+        <meta charset="UTF-8">
+        <style>
+            body {
+                color: #EEE;
+                background: #333;
+                user-select: none;
+                -webkit-user-select: none;
+                margin: 0;
+            }
+            :focus-visible {
+                outline: 2px solid #FFF4;
+                outline-offset: -2px;
+            }
+            #auths {
+                text-align: center;
+                height: calc(100vh - 20px);
+                margin: 0 auto;
+            }
+            #auths div {
+                border: 1px solid #666;
+                border-radius: 10px;
+                text-align: center;
+                width: calc(100vw - 92px);
+                max-width: 500px;
+                padding: 20px 25px 25px 25px;
+                margin: 20px auto 0 auto;
+            }
+            #auths a {
+                display: block;
+                font-size: 24px;
+                padding-bottom: 15px;
+            }
+            button {
+                color: #EEE;
+                background: #555;
+                border: none;
+                border-radius: 21px;
+                font-size: 18px;
+                width: 100px;
+                padding: 10px 0 11px 0;
+                margin: 3px 3px;
+                cursor: pointer;
+            }
+            #auths-add {
+                margin: 20px;
+            }
+            #popup {
+                content: "";
+                position: fixed;
+                background: #0004;
+                backdrop-filter: blur(5px);
+                text-align: center;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+            }
+            #popup-box {
+                position: fixed;
+                left: 50vw;
+                top: 50vh;
+                transform: translate(-50%, -50%);
+                background: #333;
+                border: 1px solid #666;
+                border-radius: 10px;
+                width: calc(100vw - 88px);
+                max-width: 500px;
+                padding: 20px;
+            }
+            #popup input {
+                color: #EEE;
+                background: #000;
+                border: none;
+                border-radius: 10px;
+                text-align: center;
+                font-size: 18px;
+                width: calc(100% - 10px);
+                padding: 5px 10px;
+                margin-bottom: 20px;
+            }
+            #popup input:last-of-type {
+                margin-bottom: 17px;
+            }
+            #popup input:focus-visible {
+                outline: none;
+            }
+            #popup button:nth-of-type(3) {
+                background: #484;
+            }
+            #popup button:nth-of-type(4) {
+                background: #A44;
+            }
+            #popup button[disabled] {
+                background: #0000;
+                cursor: default;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="auths">
+        </div>
+        <div id="popup" hidden>
+            <div id="popup-box"></div>
+        </div>
+        <script>
+            let auths = JSON.parse(window.localStorage.auths || "{}");
+            let totp = (key, time) => {
+                if (!time) {
+                    time = Math.floor(Math.round(new Date().getTime() / 1000) / 30).toString(16).padStart(16, "0");
+                }
+                let bits = "";
+                for (let i of key) {
+                    bits += "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(i.toUpperCase()).toString(2).padStart(5, "0");
+                }
+                keyB16 = parseInt(bits.substring(0, 40), 2).toString(16).padStart(10, "0") + parseInt(bits.substring(40, 80), 2).toString(16).padStart(10, "0");
+                let f1 = in1 => {
+                    let v1 = [0];
+                    for (let i = 0; i < in1.length; i += 2) {
+                        v1.fill(0, v1.length, i >>> 1 >>> 2);
+                        v1[i >>> 1 >>> 2] |= parseInt(in1.substring(i, i + 2), 16) << 8 * (3 - (i >>> 1) % 4);
+                    }
+                    return v1;
+                };
+                let f2 = (in1, in2) => {
+                    let l = [];
+                    let v0 = in2[0];
+                    let v1 = in2[1];
+                    let v2 = in2[2];
+                    let v3 = in2[3];
+                    let v4 = in2[4];
+                    for (let i = 0; i < 80; i += 1) {
+                        let v5 = l[i - 3] ^ l[i - 8] ^ l[i - 14] ^ l[i - 16];
+                        l[i] = 16 > i ? in1[i] : v5 << 1 | v5 >>> 31;
+                        let f3 = (a, b) => {
+                            let v6 = ((v0 << 5 | v0 >>> 27) & 65535) + (a & 65535) + (v4 & 65535) + (b & 65535) + (l[i] & 65535);
+                            return (((v0 << 5 | v0 >>> 27) >>> 16) + (a >>> 16) + (v4 >>> 16) + (b >>> 16) + (l[i] >>> 16) + (v6 >>> 16) & 65535) << 16 | v6 & 65535;
+                        };
+                        let v7 = 20 > i ? f3(v1 & v2 ^ ~v1 & v3, 1518500249, l[i]) : 40 > i ? f3(v1 ^ v2 ^ v3, 1859775393, l[i]) : 60 > i ? f3(v1 & v2 ^ v1 & v3 ^ v2 & v3, 2400959708, l[i]) : f3(v1 ^ v2 ^ v3, 3395469782, l[i]);
+                        v4 = v3;
+                        v3 = v2;
+                        v2 = v1 << 30 | v1 >>> 2;
+                        v1 = v0;
+                        v0 = v7;
+                    }
+                    let f4 = (a, b) => ((a >>> 16) + (b >>> 16) + (((a & 65535) + (b & 65535)) >>> 16) & 65535) << 16 | ((a & 65535) + (b & 65535)) & 65535;
+                    return [f4(v0, in2[0]), f4(v1, in2[1]), f4(v2, in2[2]), f4(v3, in2[3]), f4(v4, in2[4])];
+                };
+                let f3 = (in1, in2, in3) => {
+                    in1.fill(0, in1.length, 15);
+                    in1[in2 >>> 5] |= 128 << 24 - in2 % 32;
+                    in1[15] = (in2 + 512) & 4294967295;
+                    in1[14] = (in2 + 512) / 4294967296 | 0;
+                    return f2(in1, in3);
+                };
+                let l1 = [];
+                let l2 = [];
+                for (let i = 0; i <= 15; i += 1) {
+                    l1[i] = f1(keyB16)[i] ^ 909522486;
+                    l2[i] = f1(keyB16)[i] ^ 1549556828;
+                }
+                let v1 = "";
+                for (let i = 0; i < 20; i += 1) {
+                    v1 += (f3(f3(f1(time), 64, f2(l1, [1732584193, 4023233417, 2562383102, 271733878, 3285377520])), 160, f2(l2, [1732584193, 4023233417, 2562383102, 271733878, 3285377520]))[i >>> 2] >>> 8 * (3 - i % 4)).toString(16).padStart((i * 2) % 8 + 2, "0").substring((i * 2) % 8);
+                }
+                let v2 = (parseInt(v1.substring(parseInt(v1[39], 16) * 2, parseInt(v1[39], 16) * 2 + 8), 16) & 0x7FFFFFFF).toString();
+                return v2.substring(v2.length - 6);
+            };
+            let save = () => {
+                try {
+                    window.localStorage.auths = JSON.stringify(auths);
+                } catch {
+                    alert("Failed to save font locally.\nThis is most likely because you have blocked local storage.");
+                }
+            };
+            let showAuths = () => {
+                let authsE = document.getElementById("auths");
+                authsE.innerHTML = "";
+                let authEs = [];
+                for (let name in auths) {
+                    let authE = document.createElement("div");
+                    authE.className = "auth";
+                    let nameE = document.createElement("a");
+                    nameE.className = "auth-name";
+                    nameE.innerText = name;
+                    authE.appendChild(nameE);
+                    let showE = document.createElement("button");
+                    showE.innerText = "Show";
+                    showE.onclick = () => popup(name);
+                    authE.appendChild(showE);
+                    let copyE = document.createElement("button");
+                    copyE.innerText = "Copy";
+                    copyE.onclick = () => navigator.clipboard.writeText(totp(auths[name])).then(() => {
+                        copyE.innerText = "Copied";
+                        setTimeout(() => copyE.innerText = "Copy", 1000);
+                    });
+                    authE.appendChild(copyE);
+                    authEs.push({name: name, authE});
+                }
+                for (let authE of authEs.sort((a, b) =>  a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1)) {
+                    authsE.appendChild(authE.authE);
+                }
+                let authsAddE = document.createElement("button");
+                authsAddE.id = "auths-add";
+                authsAddE.innerText = "Add";
+                authsAddE.onclick = () => popup();
+                authsE.appendChild(authsAddE);
+            };
+            let popup = name => {
+                document.getElementById("popup").removeAttribute("hidden");
+                let popupE = document.getElementById("popup-box");
+                popupE.innerHTML = "";
+                let nameE = document.createElement("input");
+                nameE.value = name || "";
+                nameE.placeholder = "Name";
+                popupE.appendChild(nameE);
+                if (!name) {
+                    nameE.focus();
+                }
+                let keyE = document.createElement("input");
+                keyE.value = auths[name] || "";
+                keyE.placeholder = "Key";
+                popupE.appendChild(keyE);
+                let totpE = document.createElement("a");
+                totpE.innerText = name ? totp(auths[name]) : "";
+                popupE.appendChild(totpE);
+                let refreshE = document.createElement("button");
+                refreshE.innerText = "Refresh";
+                refreshE.onclick = () => totpE.innerText = keyE.value.length == 16 ? totp(keyE.value) : "";
+                popupE.appendChild(refreshE);
+                let copyE = document.createElement("button");
+                copyE.innerText = "Copy";
+                copyE.onclick = () => {
+                    if (keyE.value.length == 16) {
+                        navigator.clipboard.writeText(totp(keyE.value)).then(() => {
+                            copyE.innerText = "Copied";
+                            setTimeout(() => copyE.innerText = "Copy", 1000);
+                        });
+                    }
+                }
+                popupE.appendChild(copyE);
+                popupE.appendChild(document.createElement("br"));
+                let doneE = document.createElement("button");
+                doneE.innerText = name ? "Done" : "Add";
+                doneE.onclick = () => {
+                    document.getElementById("popup").setAttribute("hidden", "");
+                    if (name != nameE.value) {
+                        delete auths[name];
+                    }
+                    auths[nameE.value] = keyE.value;
+                    showAuths();
+                    save();
+                };
+                popupE.appendChild(doneE);
+                if (!name) {
+                    doneE.setAttribute("disabled", "");
+                }
+                nameE.onblur = () => nameE.value = nameE.value.trim();
+                nameE.oninput = keyE.oninput = () => {
+                    nameE.value = nameE.value.trimStart();
+                    keyE.value = keyE.value.toUpperCase().replace(/[^A-Z2-7]/g, "").substring(0, 16);
+                    if (nameE.value && keyE.value.length == 16) {
+                        doneE.removeAttribute("disabled");
+                    } else {
+                        doneE.setAttribute("disabled", "");
+                    }
+                }
+                let deleteE = document.createElement("button");
+                deleteE.innerText = name ? "Delete" : "Cancel";
+                deleteE.onclick = () => {
+                    document.getElementById("popup").setAttribute("hidden", "");
+                    if (name) {
+                        delete auths[name];
+                        showAuths();
+                        save();
+                    }
+                };
+                popupE.appendChild(deleteE);
+            };
+            showAuths();
+        </script>
+    </body>
+</html>
